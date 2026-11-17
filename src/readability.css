@@ -1,4 +1,6 @@
 /* Small decorative labels remain light; reading text uses the accessible ink palette. */
+.static-demo-banner{padding:12px 0;border-bottom:1px solid #eadff0;color:#776580;font-size:11px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.static-demo-banner a{color:#7954a0;text-decoration:underline;text-underline-offset:3px}
 .button{background:linear-gradient(120deg,#7c3aed,#6d28d9)}
 .button.secondary{background:#fffdfb;color:#6e507f}
 .primary-cta{background:linear-gradient(115deg,#8550c8,#7138b0)}

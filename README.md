@@ -85,6 +85,27 @@ npm test
 
 ## 配置与部署
 
+### GitHub Pages（浏览器演示模式）
+
+公开入口：**https://luzi77510.github.io/zhengyuan/**
+
+本仓库现在包含 `.github/workflows/deploy-pages.yml`。推送到 `main` 后，GitHub Actions 安装依赖、运行测试、执行 `pnpm build:pages`，将编译后的 `dist-pages/` 发布到 GitHub Pages。仓库 Settings → Pages → Source 使用 **GitHub Actions**，不要直接把源码根目录作为静态站点发布。
+
+`index.html` 在仓库根目录且全小写。它是 Vite 开发入口，引用 TSX，不能直接当成编译后的网页。Pages 构建使用 `base: '/zhengyuan/'`，输出的 CSS/JavaScript 路径均位于 `/zhengyuan/assets/`；使用 HashRouter，答题地址形如 `/zhengyuan/#/test`，刷新不会请求不存在的服务器子路由。
+
+GitHub Pages 仅支持静态托管，因此这个构建明确标注为“浏览器演示版”：18 题、计分、结果、恢复进度和海报均在浏览器运行，记录保存在本设备并与后端模式隔离；打开站点时清理超过 30 天的记录。结果链接不支持跨设备读取；不提供管理员登录、服务端校验或真实运营统计。隐私说明与页面提示同步切换，不将本地存储声称为正式后端。
+
+本机检查 Pages 版本：
+
+```sh
+pnpm build:pages
+pnpm preview:pages
+```
+
+打开 `http://127.0.0.1:4174/zhengyuan/`。原本 `pnpm dev` / `pnpm build` / `pnpm start` 仍使用完整 Node + SQLite 模式与根路径 `/`。
+
+### 完整后端模式
+
 复制 `.env.example` 为 `.env`。本机无需修改；上线必须设置实际公开域名与运营联系方式：
 
 ```dotenv
@@ -97,7 +118,7 @@ CONTACT_EMAIL=your-contact@example.com
 
 执行 `npm run build`，使用 `npm start` 启动生产模式。用反向代理终止 HTTPS，并代理到本机 4173 端口。SQLite 的 `data/` 应放在持久卷并限制系统文件访问；备份使用 SQLite 一致性备份方案。多实例或大量并发部署应迁移到 PostgreSQL 并使用共享限流存储。
 
-**这不是纯静态站点。** GitHub 仓库存放源码；GitHub Pages 无法运行 SQLite、服务端计分与管理员登录，需要支持 Node.js 的服务器。海报二维码在本机默认指向 `http://localhost:4173/`；只有设置并部署真实 `PUBLIC_ORIGIN` 后，其他人的手机才能访问。
+**完整后端模式需要 Node.js 服务器。** GitHub Pages 部署的是上述独立的浏览器演示构建，无法运行 SQLite、服务端计分与管理员登录。完整模式的海报二维码在本机默认指向 `http://localhost:4173/`，部署后请设置真实 `PUBLIC_ORIGIN`；Pages 演示版的二维码自动指向公开的 `/zhengyuan/` 首页。
 
 原始会话、答案、结果及事件在会话开始后 30 天清理（启动时及每小时），浏览器进度同期限；管理员会话为 8 小时，操作日志保留 180 天。删除接口会级联删除当前匿名设备所属记录，旧链接随之失效。统计以首次访问事件时间组成筛选队列，不是自然日新增访问次数，口径在后台明确展示。
 

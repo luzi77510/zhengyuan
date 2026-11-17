@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {Link,useNavigate,useParams} from 'react-router-dom';
 import {ArrowRight,ArrowLeft,ArrowUpRight,Clock3,Heart,ChartNoAxesCombined,Sparkles,Mail,Check,ShieldCheck,Bookmark,Leaf,Orbit,RotateCcw,Download} from 'lucide-react';
 import {useSite} from './main';
-import {api,post,readProgress,saveProgress,PROGRESS_KEY,ApiError} from './api';
+import {api,post,readProgress,saveProgress,PROGRESS_KEY,ApiError,STATIC_DEMO} from './api';
 import type {Progress,Version,Result} from './types';
 import {LoveArt,Radar} from './Art';
 import {Button,Modal,Notice,Loading,ErrorView} from './ui';
@@ -25,7 +25,7 @@ export function Test(){
   }catch(e){if(e instanceof ApiError&&e.status===404){localStorage.removeItem(PROGRESS_KEY);sessionStorage.removeItem('zy-start-key');}if(alive)setError((e as Error).message);}}
   load();return ()=>{alive=false;};},[retry,navigate]);
  useEffect(()=>{if(version&&progress)heading.current?.focus();},[progress?.current,!!version]);
- useEffect(()=>{function intercept(e:MouseEvent){const a=(e.target as HTMLElement).closest('a');if(a&&a.origin===location.origin&&a.pathname!=='/test'&&progress){e.preventDefault();setExitTarget(a.pathname);}}document.addEventListener('click',intercept);return ()=>document.removeEventListener('click',intercept);},[progress]);
+ useEffect(()=>{function intercept(e:MouseEvent){const a=(e.target as HTMLElement).closest('a');if(!a)return;const target=STATIC_DEMO?(a.hash.slice(1)||'/'):a.pathname;if(a.origin===location.origin&&target!=='/test'&&progress){e.preventDefault();e.stopPropagation();setExitTarget(target);}}document.addEventListener('click',intercept,true);return ()=>document.removeEventListener('click',intercept,true);},[progress]);
  const update=(p:Progress)=>{setProgress(p);saveProgress(p);};
  const submit=async()=>{if(!progress||!version)return;setBusy(true);setError('');try{const r=await post('/sessions/'+progress.id+'/submit',{answers:version.questions.map(q=>({question_id:q.id,option_id:progress.answers[q.id]}))});localStorage.removeItem(PROGRESS_KEY);setProgress(null);navigate('/result/'+r.id);}catch(e){setError((e as Error).message);}finally{setBusy(false);}};
  if(!version||!progress)return error?<ErrorView message={error} retry={()=>{setError('');setRetry(retry+1);}}/>:<Loading/>;
