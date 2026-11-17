@@ -1,2 +1,3 @@
-onlyBuiltDependencies:
-  - esbuild
+# pnpm 11 uses allowBuilds instead of onlyBuiltDependencies.
+allowBuilds:
+  esbuild: true
