@@ -1,0 +1,32 @@
+import test,{before,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {mkdtempSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+const folder=mkdtempSync(join(tmpdir(),'zhengyuan-tests-'));process.env.DB_PATH=join(folder,'test.sqlite');
+const {db,seed,initAdmin,passwordHash}=await import('../server/db.mjs');
+const port=44173,origin=`http://127.0.0.1:${port}`;let child;
+class Client{cookies=new Map();async call(path,method='GET',body){const r=await fetch(origin+'/api'+path,{method,headers:{'Content-Type':'application/json',Cookie:[...this.cookies].map(([k,v])=>`${k}=${v}`).join('; '),Origin:origin},body:body===undefined?undefined:JSON.stringify(body)});for(const c of r.headers.getSetCookie()){const [k,v]=c.split(';')[0].split('=');this.cookies.set(k,v);}return {status:r.status,data:r.headers.get('Content-Type')?.includes('json')?await r.json():await r.text()};}}
+const user=new Client(),other=new Client(),superuser=new Client(),editor=new Client(),viewer=new Client();
+before(async()=>{
+ seed();initAdmin('testadmin','test-password-12345');for(const [name,role]of [['editor','editor'],['viewer','viewer']])db.prepare('INSERT INTO admin_roles VALUES (?,?,?,?,?,?)').run(randomUUID(),name,passwordHash('test-password-12345'),role,0,1);
+ child=spawn(process.execPath,['server/index.mjs','--production'],{cwd:process.cwd(),env:{...process.env,PORT:String(port),PUBLIC_ORIGIN:origin},stdio:['ignore','pipe','pipe'],windowsHide:true});
+ let output='';child.stderr.on('data',d=>output+=d);for(let i=0;i<100;i++){try{if((await fetch(origin+'/api/bootstrap')).ok)return;}catch{}await new Promise(r=>setTimeout(r,100));}throw new Error('测试服务启动失败：'+output);
+});
+after(async()=>{if(child){child.kill();await new Promise(r=>child.once('exit',r));}db.close();});
+test('真实接口完整流程与安全边界',async t=>{
+ let session,resultId,originalVersion;
+ const a=Array.from({length:18},(_,i)=>({question_id:'Q'+(i+1),option_id:'D',score:999}));
+ await t.test('匿名会话与创建幂等',async()=>{await user.call('/bootstrap');const key=randomUUID();const r=await user.call('/sessions','POST',{idempotency_key:key});assert.equal(r.status,201);session=r.data.id;originalVersion=r.data.versionId;assert.equal((await user.call('/sessions','POST',{idempotency_key:key})).data.id,session);});
+ await t.test('缺题、重复题、无效选项无法生成结果',async()=>{for(const bad of [a.slice(0,17),[...a.slice(1),a[1]],[...a.slice(0,17),{question_id:'Q18',option_id:'X'}]])assert.equal((await user.call(`/sessions/${session}/submit`,'POST',{answers:bad})).status,400);assert.equal(db.prepare('SELECT COUNT(*) n FROM result_snapshots').get().n,0);});
+ await t.test('服务端重算并忽略伪造分数；并发重复提交只完成一次',async()=>{const responses=await Promise.all(Array.from({length:3},()=>user.call(`/sessions/${session}/submit`,'POST',{answers:a,dimensions:[999],base_result_code:'TYPE_C'})));assert.ok(responses.every(r=>r.status===200));assert.equal(new Set(responses.map(r=>r.data.id)).size,1);resultId=responses[0].data.id;assert.deepEqual(responses[0].data.dimensions,[9,9,9,9,9,9]);assert.equal(responses[0].data.base_result_code,'TYPE_A');assert.equal(responses[0].data.display_result_code,'EASTER');assert.equal(db.prepare("SELECT COUNT(*) n FROM analytics_events WHERE kind='complete'").get().n,1);});
+ await t.test('匿名所有权与后台鉴权',async()=>{assert.equal((await other.call('/results/'+resultId)).status,404);assert.equal((await other.call('/sessions/'+session)).status,404);assert.equal((await other.call('/admin/stats')).status,401);assert.equal((await other.call(`/sessions/${session}/submit`,'POST',{answers:a})).status,404);});
+ await t.test('三种后台角色与接口权限',async()=>{for(const [c,name]of [[superuser,'testadmin'],[editor,'editor'],[viewer,'viewer']])assert.equal((await c.call('/admin/login','POST',{username:name,password:'test-password-12345'})).status,200);assert.equal((await editor.call('/admin/accounts')).status,403);assert.equal((await viewer.call('/admin/draft')).status,403);assert.equal((await editor.call('/admin/publish','POST')).status,403);assert.equal((await viewer.call('/admin/export?detail=true')).status,403);assert.equal((await editor.call('/admin/draft','PUT',{section:'rules',value:{}})).status,403);assert.equal((await viewer.call('/admin/stats')).status,200);});
+ await t.test('发布新版本后旧会话、历史结果仍绑定原内容',async()=>{const old=await user.call('/sessions','POST',{idempotency_key:randomUUID()});const d=(await superuser.call('/admin/draft')).data.snapshot;d.results.TYPE_A.name='新版相伴画像';assert.equal((await editor.call('/admin/draft','PUT',{section:'results',value:d.results})).status,200);assert.deepEqual((await superuser.call('/admin/validate','POST')).data.errors,[]);const p=await superuser.call('/admin/publish','POST');assert.equal(p.status,200);assert.notEqual(p.data.id,originalVersion);const oldResult=await user.call(`/sessions/${old.data.id}/submit`,'POST',{answers:a});assert.equal(oldResult.data.template.name,'稳稳相伴型');assert.equal((await user.call('/results/'+resultId)).data.template.name,'稳稳相伴型');const newSession=await other.call('/sessions','POST',{idempotency_key:randomUUID()});assert.equal(newSession.data.versionId,p.data.id);assert.equal((await superuser.call('/admin/rollback','POST',{id:originalVersion})).status,200);});
+ await t.test('真实统计、导出与日志不泄露凭证',async()=>{const s=(await superuser.call('/admin/stats')).data;assert.ok(s.visitors>=1);assert.ok(s.startRate<=1);assert.ok(s.completionRate<=1);assert.equal(Object.values(s.distribution).reduce((a,b)=>a+b,0),2);const out=await superuser.call('/admin/export');assert.equal(out.status,200);assert.ok(!out.data.includes('token'));assert.ok(!out.data.includes('test-password'));assert.ok((await superuser.call('/admin/logs')).data.some(l=>l.action==='导出聚合统计'));});
+ await t.test('非法来源被拒绝',async()=>{const r=await fetch(origin+'/api/sessions',{method:'POST',headers:{Origin:'https://example.invalid','Content-Type':'application/json'},body:JSON.stringify({idempotency_key:randomUUID()})});assert.equal(r.status,403);});
+ await t.test('过期管理会话被拒绝',async()=>{db.prepare('UPDATE admin_sessions SET expires_at=0 WHERE admin_id=(SELECT id FROM admin_roles WHERE username=?)').run('viewer');assert.equal((await viewer.call('/admin/stats')).status,401);});
+ await t.test('删除本人记录真实执行，历史结果失效',async()=>{assert.equal((await user.call('/my-data','DELETE')).status,200);assert.equal((await user.call('/results/'+resultId)).status,404);assert.equal(db.prepare('SELECT COUNT(*) n FROM result_snapshots').get().n,0);});
+});

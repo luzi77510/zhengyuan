@@ -1,0 +1,18 @@
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+CREATE TABLE IF NOT EXISTS test_versions (id TEXT PRIMARY KEY, status TEXT NOT NULL, snapshot TEXT NOT NULL, created_at INTEGER NOT NULL, published_at INTEGER, operator TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS one_published ON test_versions(status) WHERE status='published';
+CREATE TABLE IF NOT EXISTS dimensions (code TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS questions (version_id TEXT NOT NULL REFERENCES test_versions(id), id TEXT NOT NULL, dimension TEXT NOT NULL REFERENCES dimensions(code), position INTEGER NOT NULL, text TEXT NOT NULL, enabled INTEGER NOT NULL, PRIMARY KEY(version_id,id));
+CREATE TABLE IF NOT EXISTS options (version_id TEXT NOT NULL, question_id TEXT NOT NULL, id TEXT NOT NULL, text TEXT NOT NULL, score INTEGER NOT NULL CHECK(score BETWEEN 0 AND 3), PRIMARY KEY(version_id,question_id,id), FOREIGN KEY(version_id,question_id) REFERENCES questions(version_id,id));
+CREATE TABLE IF NOT EXISTS result_templates (version_id TEXT NOT NULL REFERENCES test_versions(id), code TEXT NOT NULL, content TEXT NOT NULL, PRIMARY KEY(version_id,code));
+CREATE TABLE IF NOT EXISTS owners (id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS answer_sessions (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE, version_id TEXT NOT NULL REFERENCES test_versions(id), started_at INTEGER NOT NULL, completed_at INTEGER, status TEXT NOT NULL DEFAULT 'started', idempotency_key TEXT UNIQUE NOT NULL);
+CREATE TABLE IF NOT EXISTS answers (session_id TEXT NOT NULL REFERENCES answer_sessions(id) ON DELETE CASCADE, question_id TEXT NOT NULL, option_id TEXT NOT NULL, score INTEGER NOT NULL, PRIMARY KEY(session_id,question_id));
+CREATE TABLE IF NOT EXISTS result_snapshots (id TEXT PRIMARY KEY, session_id TEXT UNIQUE NOT NULL REFERENCES answer_sessions(id) ON DELETE CASCADE, snapshot TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS analytics_events (id INTEGER PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE, session_id TEXT REFERENCES answer_sessions(id) ON DELETE CASCADE, version_id TEXT NOT NULL, kind TEXT NOT NULL, dedup_key TEXT UNIQUE NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS admin_roles (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('super','editor','viewer')), can_export_details INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS admin_sessions (token_hash TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES admin_roles(id), expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY, admin_id TEXT NOT NULL, username TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS session_owner ON answer_sessions(owner_id);
+CREATE INDEX IF NOT EXISTS event_time ON analytics_events(created_at);

@@ -1,0 +1,6 @@
+{
+  "name": "zhengyuan-letter", "version": "1.0.0", "private": true, "type": "module",
+  "scripts": {"dev": "node server/index.mjs", "build": "tsc --noEmit && vite build", "start": "node server/index.mjs --production", "test": "node --test tests/*.test.mjs", "admin:init": "node server/init-admin.mjs", "seed": "node server/seed.mjs"},
+  "dependencies": {"express": "^5.1.0", "lucide-react": "^0.468.0", "qrcode": "^1.5.4", "react": "^19.0.0", "react-dom": "^19.0.0", "react-router-dom": "^7.1.0"},
+  "devDependencies": {"@types/node": "^22.10.0", "@types/qrcode": "^1.5.5", "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0", "@vitejs/plugin-react": "^4.3.4", "typescript": "^5.7.2", "vite": "^6.0.5"}
+}
